@@ -1,0 +1,62 @@
+name: CI/CD — Deploy to Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install zip
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Create deployment package
+        run: |
+          set -e
+          timestamp=$(date +%Y%m%d%H%M%S)
+          ZIP_FILE="app-${timestamp}.zip"
+          zip -r "$ZIP_FILE" . -x ".git/*" ".github/*" "__pycache__/*" "*.pyc" "venv/*"
+          echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_ENV
+
+      - name: Upload to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+        run: |
+          aws s3 cp "$ZIP_FILE" "s3://${S3_BUCKET}/${ZIP_FILE}"
+
+      - name: Create Elastic Beanstalk application version
+        env:
+          APP_NAME: ${{ secrets.EB_APPLICATION_NAME }}
+          BUCKET: ${{ secrets.S3_BUCKET_NAME }}
+        run: |
+          VERSION_LABEL=$(date +%Y%m%d%H%M%S)
+          aws elasticbeanstalk create-application-version \
+            --application-name "$APP_NAME" \
+            --version-label "$VERSION_LABEL" \
+            --source-bundle S3Bucket="$BUCKET",S3Key="$ZIP_FILE"
+          echo "VERSION_LABEL=$VERSION_LABEL" >> $GITHUB_ENV
+
+      - name: Update Elastic Beanstalk environment
+        env:
+          ENV_NAME: ${{ secrets.EB_ENV_NAME }}
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name "$ENV_NAME" \
+            --version-label "$VERSION_LABEL"
