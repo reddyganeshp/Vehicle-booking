@@ -29,3 +29,4 @@ A comprehensive vehicle service booking system built with FastAPI and AWS servic
 
 ```bash
 pip install -r requirements.txt"# deploy trigger" 
+"# vehicle-booking" 
